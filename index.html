@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>chatme</title>
+    <!-- Bootstrap CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for Icons (Theme Switcher) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        /* Base Theme (Light/White) */
+        :root {
+            --bs-body-bg: #f8f9fa;
+            --bs-body-color: #212529;
+            --bs-card-bg: #ffffff;
+            --bs-card-border: #dee2e6;
+            --bs-navbar-bg: #e9ecef;
+            --bs-navbar-color: #212529;
+            --bs-primary: #0d6efd;
+        }
+
+        /* Black Theme */
+        .theme-black {
+            --bs-body-bg: #212529;
+            --bs-body-color: #f8f9fa;
+            --bs-card-bg: #343a40;
+            --bs-card-border: #495057;
+            --bs-navbar-bg: #343a40;
+            --bs-navbar-color: #f8f9fa;
+            --bs-primary: #4a90e2; /* Adjusted primary for better visibility on dark bg */
+        }
+
+        /* Red Theme */
+        .theme-red {
+            --bs-body-bg: #f8d7da; /* Light red background */
+            --bs-body-color: #721c24; /* Dark red text */
+            --bs-card-bg: #f5c6cb; /* Medium red card */
+            --bs-card-border: #dc3545;
+            --bs-navbar-bg: #dc3545; /* Bootstrap danger red */
+            --bs-navbar-color: #ffffff;
+            --bs-primary: #a12833; /* Darker red for emphasis */
+        }
+
+        /* Apply CSS variables */
+        body {
+            background-color: var(--bs-body-bg);
+            color: var(--bs-body-color);
+            transition: background-color 0.3s, color 0.3s;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .navbar {
+            background-color: var(--bs-navbar-bg) !important;
+            color: var(--bs-navbar-color) !important;
+        }
+        .navbar-brand, .nav-link, .btn-theme-toggle {
+            color: var(--bs-navbar-color) !important;
+        }
+
+        .card {
+            background-color: var(--bs-card-bg);
+            border-color: var(--bs-card-border);
+            color: var(--bs-body-color);
+        }
+
+        .form-control, .btn-primary {
+            border-radius: 0.5rem;
+        }
+
+        #response-output {
+            white-space: pre-wrap;
+            min-height: 150px;
+            overflow-y: auto;
+            max-height: 60vh;
+            text-align: left;
+        }
+
+        .footer {
+            background-color: var(--bs-navbar-bg);
+            color: var(--bs-navbar-color);
+        }
+        
+        .spinner-border {
+            color: var(--bs-primary) !important;
+        }
+        
+        /* Markdown Styling for API Output */
+        #response-output h1, #response-output h2, #response-output h3 {
+            border-bottom: 1px solid var(--bs-card-border);
+            padding-bottom: 0.3em;
+            margin-top: 1em;
+        }
+        #response-output pre {
+            background-color: var(--bs-body-bg);
+            border: 1px solid var(--bs-card-border);
+            padding: 10px;
+            overflow-x: auto;
+            border-radius: 0.5rem;
+        }
+    </style>
+</head>
+<body class="theme-light">
+
+    <!-- Mandatory Firebase Setup (Invisible) -->
+    <!-- This block initializes Firebase, handles custom/anonymous sign-in, and sets up authentication -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, getDocs, query, where, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Set log level for debugging Firestore (uncomment for verbose logs)
+        // setLogLevel('Debug'); 
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app, db, auth;
+
+        window.firebaseReady = new Promise(async (resolve) => {
+            if (firebaseConfig) {
+                try {
+                    app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+                    
+                    // Set persistence to session to maintain state across reloads/previews
+                    await setPersistence(auth, browserSessionPersistence);
+
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        console.log("Firebase signed in with custom token.");
+                    } else {
+                        await signInAnonymously(auth);
+                        console.log("Firebase signed in anonymously.");
+                    }
+                    
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            console.log(`User ID: ${user.uid}`);
+                            document.getElementById('user-id-display').textContent = `User ID: ${user.uid}`;
+                        }
+                        resolve({ db, auth, appId, user: user });
+                    });
+
+                } catch (error) {
+                    console.error("Firebase initialization or sign-in failed:", error);
+                    resolve(null); // Resolve with null if failure
+                }
+            } else {
+                console.warn("Firebase configuration not available. Proceeding without persistent storage/auth.");
+                resolve(null);
+            }
+        });
+
+    </script>
+
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg sticky-top shadow-sm" data-bs-theme="dark">
+        <div class="container-fluid container-lg">
+            <a class="navbar-brand fw-bold" href="#">
+                <i class="fas fa-brain me-2"></i>chatme
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a class="nav-link active" aria-current="page" href="#">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#">Features</a>
+                    </li>
+                </ul>
+                <form class="d-flex me-3 mb-2 mb-lg-0" role="search" onsubmit="return false;">
+                    <input class="form-control me-2 rounded-full" type="search" placeholder="Search Docs" aria-label="Search">
+                    <button class="btn btn-outline-light" type="submit">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </form>
+                <!-- Theme Switcher -->
+                <button class="btn btn-outline-light btn-theme-toggle rounded-full" id="theme-toggle-btn" title="Toggle Theme (Light, Red, Black)">
+                    <i class="fas fa-palette"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="container-fluid container-lg my-4 flex-grow-1">
+        <div class="row justify-content-center">
+            <div class="col-12 col-xl-8">
+                
+                <!-- Input Card -->
+                <div class="card p-4 shadow-lg mb-4 rounded-3">
+                    <h2 class="h4 mb-3 text-center">Chat with Me</h2>
+                    <form id="gemini-form">
+                        <div class="mb-3">
+                            <textarea class="form-control rounded-lg" id="prompt-input" rows="3" placeholder="Enter your prompt here (e.g., Explain quantum computing in simple terms)" required></textarea>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg fw-bold" id="submit-btn">
+                                <i class="fas fa-paper-plane me-2"></i>Generate Response
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Output Card -->
+                <div class="card p-4 shadow-lg rounded-3">
+                    <h2 class="h5 mb-3 d-flex justify-content-between align-items-center">
+                        AI Response 
+                        <span id="response-status" class="badge bg-secondary">Ready</span>
+                    </h2>
+                    <div id="loading-indicator" class="text-center d-none my-4">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2 text-muted">Thinking...</p>
+                    </div>
+                    <div id="response-output" class="card p-3 rounded-lg border">
+                        Enter a prompt and click "Generate Response" to get started.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer py-3 mt-auto shadow-sm">
+        <div class="container-fluid container-lg text-center">
+            <span class="text-muted small">&copy; 2025 Powered by Google Gemini</span>
+            <div class="small mt-1">
+                <span class="fw-bold">User:</span> <span id="user-id-display">Initializing User...</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // --- Theme Switching Logic ---
+        const themeButton = document.getElementById('theme-toggle-btn');
+        const body = document.body;
+        // List of themes available
+        const themes = ['theme-light', 'theme-red', 'theme-black']; 
+        let currentThemeIndex = 0;
+
+        /**
+         * Applies the specified theme class to the body element.
+         * @param {string} theme - The theme class name.
+         */
+        function applyTheme(theme) {
+            body.className = theme;
+            // Update navbar appearance based on light/dark themes
+            const navbar = document.querySelector('.navbar');
+            if (theme === 'theme-black' || theme === 'theme-red') {
+                navbar.setAttribute('data-bs-theme', 'dark');
+            } else {
+                navbar.setAttribute('data-bs-theme', 'light');
+            }
+        }
+
+        themeButton.addEventListener('click', () => {
+            currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+            const newTheme = themes[currentThemeIndex];
+            applyTheme(newTheme);
+            // Save theme preference
+            localStorage.setItem('app-theme', newTheme); 
+        });
+
+        // Load theme from localStorage on startup
+        const savedTheme = localStorage.getItem('app-theme');
+        if (savedTheme) {
+            currentThemeIndex = themes.indexOf(savedTheme);
+            if (currentThemeIndex === -1) currentThemeIndex = 0; // Default to light if invalid
+            applyTheme(savedTheme);
+        } else {
+            applyTheme(themes[currentThemeIndex]);
+        }
+        
+        // --- Gemini API Logic ---
+        const form = document.getElementById('gemini-form');
+        const promptInput = document.getElementById('prompt-input');
+        const submitBtn = document.getElementById('submit-btn');
+        const responseOutput = document.getElementById('response-output');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const responseStatus = document.getElementById('response-status');
+        
+        // The API Key is intentionally left empty. The environment provides it at runtime.
+        const apiKey = "AIzaSyCoxR01HgbUUWcMOWU_LXrIkFaXuJF46Q4"; 
+        const modelName = "gemini-2.5-flash-preview-09-2025";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+        /**
+         * Generic function to fetch with exponential backoff for resilience.
+         */
+        async function fetchWithRetry(url, options, retries = 5, delay = 1000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status === 429 && i < retries - 1) {
+                        // Too Many Requests, retry after delay
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2; // Exponential backoff
+                        continue;
+                    }
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(`API error: ${response.status} ${response.statusText}. Details: ${JSON.stringify(errorData)}`);
+                    }
+                    return response;
+                } catch (error) {
+                    if (i === retries - 1) {
+                        throw error;
+                    }
+                    // For network errors or other transient issues, wait and retry
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+        /**
+         * Simple Markdown to HTML converter.
+         * Note: This is a very basic implementation and does not cover all Markdown syntax.
+         * @param {string} markdownText - The text containing basic markdown.
+         * @returns {string} The HTML string.
+         */
+        function markdownToHtml(markdownText) {
+            // Convert code blocks (simplified: looks for fences)
+            markdownText = markdownText.replace(/```(\w+)?\n([\s\S]*?)\n```/g, function(match, lang, code) {
+                return '<pre class="language-' + (lang || 'plaintext') + '"><code>' + code.trim() + '</code></pre>';
+            });
+
+            // Convert lists (simple bullet points)
+            markdownText = markdownText.replace(/^- (.*$)/gim, '<li>$1</li>');
+            if (markdownText.includes('<li>')) {
+                markdownText = '<ul>' + markdownText + '</ul>';
+                // Clean up list items that weren't immediately preceded by a newline
+                markdownText = markdownText.replace(/<\/ul>\n?<ul>/g, ''); 
+            }
+
+            // Convert headers
+            markdownText = markdownText
+                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gim, '<h1>$1</h1>');
+            
+            // Convert bold and italic (must be done after list and header handling)
+            markdownText = markdownText
+                .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+                .replace(/`(.*?)`/gim, '<code>$1</code>');
+
+            // Convert double newlines to paragraph breaks (simpler approach for pre-wrap text)
+            // Note: pre-wrap handles single newlines, but we use <br> for better paragraph spacing
+            // For simplicity, we stick to the default `white-space: pre-wrap` styling and rely on the model's output formatting.
+
+            return markdownText;
+        }
+
+        async function generateContent(prompt) {
+            responseStatus.textContent = "Connecting...";
+            submitBtn.disabled = true;
+            loadingIndicator.classList.remove('d-none');
+            responseOutput.innerHTML = '';
+            
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                // Optional: Enable Google Search Grounding for real-time/factual queries
+                tools: [{ "google_search": {} }], 
+            };
+
+            const options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            };
+
+            try {
+                responseStatus.textContent = "Generating...";
+                const response = await fetchWithRetry(apiUrl, options);
+                const result = await response.json();
+
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const text = candidate.content.parts[0].text;
+                    
+                    // Convert the markdown output to simple HTML for display
+                    responseOutput.innerHTML = markdownToHtml(text);
+                    responseStatus.textContent = "Success";
+                    responseStatus.classList.remove('bg-secondary', 'bg-danger');
+                    responseStatus.classList.add('bg-success');
+                } else {
+                    responseOutput.innerHTML = 'Error: No text generated or unexpected response structure.';
+                    responseStatus.textContent = "Error";
+                    responseStatus.classList.remove('bg-secondary', 'bg-success');
+                    responseStatus.classList.add('bg-danger');
+                }
+
+            } catch (error) {
+                console.error("Gemini API call failed:", error);
+                responseOutput.innerHTML = `<p class="text-danger">An error occurred while calling the Gemini API.</p><p class="small text-muted">${error.message}</p>`;
+                responseStatus.textContent = "Failed";
+                responseStatus.classList.remove('bg-secondary', 'bg-success');
+                responseStatus.classList.add('bg-danger');
+            } finally {
+                submitBtn.disabled = false;
+                loadingIndicator.classList.add('d-none');
+            }
+        }
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const prompt = promptInput.value.trim();
+            if (prompt) {
+                generateContent(prompt);
+            }
+        });
+
+    </script>
+</body>
+</html>
